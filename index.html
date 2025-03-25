@@ -1,8 +1,10 @@
+
 <!DOCTYPE html>
 <html lang="ja">
 <head>
   <meta charset="UTF-8">
   <title>サイトマップツール</title>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
   <style>
     body {
       font-family: 'Helvetica Neue', sans-serif;
@@ -12,7 +14,7 @@
       max-width: 1000px;
       margin: auto;
     }
-    textarea, input {
+    textarea, input, select {
       width: 100%;
       padding: 10px;
       margin-bottom: 10px;
@@ -32,28 +34,58 @@
     .card {
       border: 1px solid #000;
       background: #fff;
-      padding: 10px 14px;
-      margin: 5px 0;
+      padding: 15px;
+      margin: 8px 0;
       border-radius: 6px;
       cursor: grab;
+      display: flex;
+      flex-direction: column;
     }
-    .card.level-0 {
-      font-weight: bold;
-      cursor: default;
-    }
-    .card.level-1 {
-      margin: 20px 0;
+    .card-content {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
     }
     .children {
       margin-left: 20px;
       margin-top: 20px;
     }
     .output {
-      background: #fff;
+      background: #efefef;
       padding: 20px;
-      border: 1px solid #000;
+      border: 1px solid #333;
       border-radius: 8px;
       margin-top: 20px;
+    }
+    .fa-fw {
+      width: 18px;
+      text-align: center;
+    }
+    .comment-box {
+      margin-top: 5px;
+      font-size: 12px;
+      color: #444;
+      width: 80%;
+    }
+    .no-print {
+      display: inline-block;
+    }
+    .hide-on-export {
+      display: none !important;
+    }
+    .estimate-box {
+      margin-top: 20px;
+      padding: 15px;
+      background: #fff;
+      border: 1px solid #000;
+      border-radius: 6px;
+    }
+    .rule-item {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 8px;
     }
   </style>
 </head>
@@ -62,27 +94,97 @@
 
   <textarea id="input" placeholder=""></textarea>
   <button onclick="generateSitemap()">生成</button>
-  <button onclick="downloadImage()">PNG保存</button>
-  <button onclick="downloadPDF()">PDF保存</button>
+  <button onclick="prepareExport(true); downloadImage()">PNG保存</button>
+  <button onclick="prepareExport(true); downloadPDF()">PDF保存</button>
 
   <div id="output" class="output"></div>
+
+  <div class="estimate-box">
+    <h3>見積もり設定</h3>
+    <div id="rule-list"></div>
+    <input type="text" id="new-type" placeholder="例: フォーム">
+    <input type="number" id="new-price" placeholder="金額">
+    <button onclick="addRule()">ルール追加</button>
+    <hr>
+    <div id="estimate-result">合計金額: ¥0</div>
+  </div>
 
   <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.0/Sortable.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
   <script>
+    const iconOptions = {
+      '': '',
+      'トップページ': 'fa-solid fa-house',
+      'ページ': 'fa-regular fa-file',
+      'フォーム': 'fa-solid fa-pen-to-square',
+      '一覧': 'fa-solid fa-list',
+      '詳細': 'fa-solid fa-file-lines',
+      '設定': 'fa-solid fa-gear',
+      'リンク': 'fa-solid fa-link'
+    };
+
+    let ruleMap = JSON.parse(localStorage.getItem('iconRules') || '{}');
+
+    function updateRuleUI() {
+      const list = document.getElementById('rule-list');
+      list.innerHTML = '';
+      Object.entries(ruleMap).forEach(([key, val]) => {
+        const div = document.createElement('div');
+        div.className = 'rule-item';
+        div.innerHTML = `<span>${key}: ¥${val}</span>
+                         <button onclick="deleteRule('${key}')">削除</button>`;
+        list.appendChild(div);
+      });
+      calculateEstimate();
+    }
+
+    function addRule() {
+      const type = document.getElementById('new-type').value.trim();
+      const price = parseInt(document.getElementById('new-price').value.trim(), 10);
+      if (type && !isNaN(price)) {
+        ruleMap[type] = price;
+        localStorage.setItem('iconRules', JSON.stringify(ruleMap));
+        updateRuleUI();
+        document.getElementById('new-type').value = '';
+        document.getElementById('new-price').value = '';
+      }
+    }
+
+    function deleteRule(type) {
+      delete ruleMap[type];
+      localStorage.setItem('iconRules', JSON.stringify(ruleMap));
+      updateRuleUI();
+    }
+
+    function calculateEstimate() {
+      const counts = {};
+      document.querySelectorAll('.icon-type').forEach(el => {
+        const label = el.dataset.type;
+        if (!label) return;
+        counts[label] = (counts[label] || 0) + 1;
+      });
+
+      let total = 0;
+      Object.entries(counts).forEach(([type, count]) => {
+        const unit = ruleMap[type] || 0;
+        total += unit * count;
+      });
+
+      document.getElementById('estimate-result').textContent = `合計金額: ¥${total.toLocaleString()}`;
+    }
+
     function generateSitemap() {
       const input = document.getElementById("input").value.trim();
       const lines = input.split('\n').map(line => line.trim()).filter(Boolean);
       const stack = [{ level: -1, children: [] }];
-      const root = stack[0].children;
       let top = null;
 
       lines.forEach(line => {
         const match = line.match(/^(>*)\s*(.+)$/);
         const level = match[1].length;
         const title = match[2];
-        const node = { title, children: [], level };
+        const node = { title, icon: '', comment: '', children: [], level };
         if (!top) top = node;
         else {
           while (stack.length && stack[stack.length - 1].level >= level) stack.pop();
@@ -94,6 +196,7 @@
       const container = document.getElementById('output');
       container.innerHTML = '';
       container.appendChild(renderTree([top]));
+      calculateEstimate();
     }
 
     function renderTree(nodes) {
@@ -102,7 +205,51 @@
       nodes.forEach(node => {
         const card = document.createElement('div');
         card.className = `card level-${node.level}`;
-        card.textContent = node.title;
+
+        const content = document.createElement('div');
+        content.className = 'card-content';
+
+        const iconSelect = document.createElement('select');
+        iconSelect.className = 'no-print';
+        for (const [label, iconClass] of Object.entries(iconOptions)) {
+          const option = document.createElement('option');
+          option.value = iconClass;
+          option.textContent = label || 'アイコンなし';
+          iconSelect.appendChild(option);
+        }
+
+        const iconEl = document.createElement('i');
+        iconEl.className = 'fa-fw icon-type';
+        iconEl.dataset.type = '';
+
+        iconSelect.onchange = () => {
+          iconEl.className = `fa-fw icon-type ${iconSelect.value}`;
+          iconEl.dataset.type = iconSelect.options[iconSelect.selectedIndex].textContent;
+          calculateEstimate();
+        };
+
+        const titleSpan = document.createElement('span');
+        titleSpan.textContent = node.title;
+
+        content.appendChild(iconEl);
+        content.appendChild(titleSpan);
+        content.appendChild(iconSelect);
+        card.appendChild(content);
+
+        const commentInput = document.createElement('input');
+        commentInput.type = 'text';
+        commentInput.placeholder = 'コメントを入力...';
+        commentInput.className = 'comment-box no-print';
+        commentInput.oninput = () => {
+          commentDisplay.textContent = commentInput.value;
+          commentDisplay.style.display = commentInput.value ? 'block' : 'none';
+        };
+        card.appendChild(commentInput);
+
+        const commentDisplay = document.createElement('div');
+        commentDisplay.className = 'comment-box';
+        commentDisplay.style.display = 'none';
+        card.appendChild(commentDisplay);
 
         if (node.children.length) {
           const childWrapper = document.createElement('div');
@@ -125,12 +272,19 @@
       return wrapper;
     }
 
+    function prepareExport(hide) {
+      document.querySelectorAll('.no-print').forEach(el => {
+        el.classList.toggle('hide-on-export', hide);
+      });
+    }
+
     function downloadImage() {
       html2canvas(document.querySelector("#output")).then(canvas => {
         const link = document.createElement("a");
         link.download = "sitemap.png";
         link.href = canvas.toDataURL();
         link.click();
+        prepareExport(false);
       });
     }
 
@@ -144,8 +298,11 @@
         const pdfHeight = (imgProps.height * pdfWidth) / imgProps.width;
         pdf.addImage(imgData, 'PNG', 0, 0, pdfWidth, pdfHeight);
         pdf.save("sitemap.pdf");
+        prepareExport(false);
       });
     }
+
+    updateRuleUI();
   </script>
 </body>
 </html>
