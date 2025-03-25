@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <title>サイトマップツール</title>
+  <style>
+    body {
+      font-family: 'Helvetica Neue', sans-serif;
+      background: #f9f9f9;
+      color: #000;
+      padding: 40px;
+      max-width: 1000px;
+      margin: auto;
+    }
+    textarea, input {
+      width: 100%;
+      padding: 10px;
+      margin-bottom: 10px;
+      border: 1px solid #000;
+      border-radius: 5px;
+      font-size: 14px;
+    }
+    button {
+      background: #000;
+      color: #fff;
+      border: none;
+      padding: 10px 16px;
+      border-radius: 5px;
+      margin-right: 10px;
+      cursor: pointer;
+    }
+    .card {
+      border: 1px solid #000;
+      background: #fff;
+      padding: 10px 14px;
+      margin: 5px 0;
+      border-radius: 6px;
+      cursor: grab;
+    }
+    .card.level-0 {
+      font-weight: bold;
+      cursor: default;
+    }
+    .card.level-1 {
+      margin: 20px 0;
+    }
+    .children {
+      margin-left: 20px;
+      margin-top: 20px;
+    }
+    .output {
+      background: #fff;
+      padding: 20px;
+      border: 1px solid #000;
+      border-radius: 8px;
+      margin-top: 20px;
+    }
+  </style>
+</head>
+<body>
+  <h1>サイトマップツール</h1>
+
+  <textarea id="input" placeholder=""></textarea>
+  <button onclick="generateSitemap()">生成</button>
+  <button onclick="downloadImage()">PNG保存</button>
+  <button onclick="downloadPDF()">PDF保存</button>
+
+  <div id="output" class="output"></div>
+
+  <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.0/Sortable.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  <script>
+    function generateSitemap() {
+      const input = document.getElementById("input").value.trim();
+      const lines = input.split('\n').map(line => line.trim()).filter(Boolean);
+      const stack = [{ level: -1, children: [] }];
+      const root = stack[0].children;
+      let top = null;
+
+      lines.forEach(line => {
+        const match = line.match(/^(>*)\s*(.+)$/);
+        const level = match[1].length;
+        const title = match[2];
+        const node = { title, children: [], level };
+        if (!top) top = node;
+        else {
+          while (stack.length && stack[stack.length - 1].level >= level) stack.pop();
+          stack[stack.length - 1].children.push(node);
+        }
+        stack.push({ level, children: node.children });
+      });
+
+      const container = document.getElementById('output');
+      container.innerHTML = '';
+      container.appendChild(renderTree([top]));
+    }
+
+    function renderTree(nodes) {
+      const wrapper = document.createElement('div');
+
+      nodes.forEach(node => {
+        const card = document.createElement('div');
+        card.className = `card level-${node.level}`;
+        card.textContent = node.title;
+
+        if (node.children.length) {
+          const childWrapper = document.createElement('div');
+          childWrapper.className = 'children';
+          const childTree = renderTree(node.children);
+          childWrapper.appendChild(childTree);
+          card.appendChild(childWrapper);
+
+          new Sortable(childTree, {
+            group: 'nested',
+            animation: 150,
+            fallbackOnBody: true,
+            swapThreshold: 0.65
+          });
+        }
+
+        wrapper.appendChild(card);
+      });
+
+      return wrapper;
+    }
+
+    function downloadImage() {
+      html2canvas(document.querySelector("#output")).then(canvas => {
+        const link = document.createElement("a");
+        link.download = "sitemap.png";
+        link.href = canvas.toDataURL();
+        link.click();
+      });
+    }
+
+    function downloadPDF() {
+      html2canvas(document.querySelector("#output")).then(canvas => {
+        const imgData = canvas.toDataURL('image/png');
+        const { jsPDF } = window.jspdf;
+        const pdf = new jsPDF();
+        const imgProps = pdf.getImageProperties(imgData);
+        const pdfWidth = pdf.internal.pageSize.getWidth();
+        const pdfHeight = (imgProps.height * pdfWidth) / imgProps.width;
+        pdf.addImage(imgData, 'PNG', 0, 0, pdfWidth, pdfHeight);
+        pdf.save("sitemap.pdf");
+      });
+    }
+  </script>
+</body>
+</html>
